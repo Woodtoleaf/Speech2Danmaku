@@ -11,3 +11,6 @@
 在涉及音频整合的部分本项目使用了[FFmpeg](https://ffmpeg.org/download.html)，运行前需要将其添加到系统的环境变量中。
 
 之后直接运行解压包的exe即可。
+
+## 可选
+安装[Nvidia CUDA Toolkit](https://developer.nvidia.com/cuda-toolkit)，来让模型使用GPU而不是CPU。
