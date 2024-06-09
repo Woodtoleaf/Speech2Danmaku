@@ -13,4 +13,10 @@
 之后直接运行解压包的exe即可。
 
 ## 可选
+
+### 安装Nvidia CUDA Toolkit
 安装[Nvidia CUDA Toolkit](https://developer.nvidia.com/cuda-toolkit)，来让模型使用GPU而不是CPU。
+
+### 识别电脑声音
+如果想使用本项目识别电脑输出的音频而不是麦克风收到的声音，需要安装[Vb Audio Vitual Cable](https://vb-audio.com/Cable/index.htm)之类的虚拟音频设备。将其设置为默认声音设备和默认麦克风，为了在自己的设备里接受同样的音频，在虚拟麦克风的属性中的侦听选项，选择对应的音频设备即可。
+
