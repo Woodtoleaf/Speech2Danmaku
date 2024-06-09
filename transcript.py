@@ -27,9 +27,10 @@ except Exception as e:
     raise
 
 class Transcription:
-    def __init__(self, text, threshold, cpu_affinity=None):
+    def __init__(self, text, threshold, input_device, cpu_affinity=None):
         self.text = text
         self.threshold = threshold
+        self.input_device = input_device
         self.root = None
         self.audio_queue = queue.Queue(maxsize=10)  # 增加队列大小
         self.running = threading.Event()
@@ -71,24 +72,26 @@ class Transcription:
 
     def record_and_save(self):
         if self.cpu_affinity:
-            p = psutil.Process(os.getpid())
-            p.cpu_affinity(self.cpu_affinity)  # 设置进程的 CPU 亲和性
-        
+            try:
+                p = psutil.Process(os.getpid())
+                p.cpu_affinity(self.cpu_affinity)  # 设置进程的 CPU 亲和性
+            except (psutil.AccessDenied, psutil.NoSuchProcess, OSError) as e:
+                print(f"无法设置 CPU 亲和性: {e}")
+
         while self.running.is_set():
             try:
-                recording = sd.rec(int(duration * fs), samplerate=fs, channels=2)
-                sd.wait()
-                if self.audio_queue.full():
-                    self.audio_queue.get()
-                self.audio_queue.put(recording)
+                with sd.InputStream(samplerate=fs, channels=2, device=self.input_device) as stream:
+                    recording = stream.read(int(duration * fs))[0]
+                    if self.audio_queue.full():
+                        self.audio_queue.get()
+                    self.audio_queue.put(recording)
             except Exception as e:
                 print(f"录音失败: {e}")
 
-    
     def transcribe_and_update(self):
         if not self.running.is_set():
             return
-        
+
         try:
             if not self.audio_queue.empty():
                 recordings = list(self.audio_queue.queue)
@@ -100,13 +103,13 @@ class Transcription:
                     transcribed_text = transcription['text']
                     os.remove(filename)
                 else:
-                    self.text = "No speech detected."
+                    transcribed_text = "No speech detected."
 
                 # Update GUI
                 self.root.after(0, self.update_gui_text, transcribed_text)
         except Exception as e:
             print(f"转录失败: {e}")
-        
+
         # 2秒后再次调用
         threading.Timer(2.0, self.transcribe_and_update).start()
 
@@ -131,4 +134,5 @@ class Transcription:
     def stop(self):
         self.running.clear()
         if self.root:
-            self.root.quit()
+            self.root.after(0, self.root.destroy)
+
