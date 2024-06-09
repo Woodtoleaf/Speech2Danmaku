@@ -8,7 +8,7 @@
 
 下载release中的zip，解压到任意目录下（最好是英文目录）。
 
-在涉及音频整合的部分本项目需要[FFmpeg](https://ffmpeg.org/download.html)，运行前需要将其添加到系统的环境变量中。
+在涉及音频整合的部分本项目需要[FFmpeg](https://ffmpeg.org/download.html)，运行前需要将其添加到系统的环境变量中。（方便一些人的使用在压缩包中默认提供了一个FFmpeg，也可以自行去官网下载）
 
 之后直接运行解压包的exe即可。
 
