@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['main.py', 'transcript.py'],
+    ['main.py', 'AudioRecord.py', 'ModelFastapi.py', 'RequestText.py'],
     pathex=[],
     binaries=[],
     datas=[],

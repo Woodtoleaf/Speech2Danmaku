@@ -1,83 +1,140 @@
-from transcript import Transcription
 import tkinter as tk
-import threading
-import sounddevice as sd
+from tkinter import messagebox
+from tkinter import ttk
+from threading import Thread
+import time
+import ModelFastapi
+import AudioRecord
 
-class MainWindow:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Transcript 控制窗口")
-        self.root.geometry("320x320")  # 调整窗口大小以适应新控件
+# Global variables
+sa_instance = None
+recording_active = False
+selected_device_index = None
+window = None  # Global reference to the main window
+server_thread = None
 
-        self.transcription = None
-        self.is_running = False
-        self.threshold = tk.DoubleVar(value=0.01)
-        self.input_device = tk.StringVar()
+# Function to start FastAPI server in a separate thread
+def start_server():
+    global server_thread
+    try:
+        server_thread = Thread(target=ModelFastapi.start_fastapi_server)
+        server_thread.start()
+        time.sleep(5)  # Ensure server has started before returning
+        messagebox.showinfo("Success", "Server started successfully")
+        start_button.config(text="服务运行中")  # Update button text
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to start server: {e}")
 
-        self.create_widgets()
+def stop_server():
+    global server_thread
+    if server_thread and server_thread.is_alive():
+        try:
+            ModelFastapi.stop_fastapi_server()
+            server_thread.join()
+            messagebox.showinfo("Success", "Server stopped successfully")
+            start_button.config(text="启动服务（先运行）")  # Update button text
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to stop server: {e}")
 
-    def create_widgets(self):
-        self.btn_toggle = tk.Button(self.root, text="启动", command=self.toggle_transcription)
-        self.btn_toggle.pack(pady=20)
+def toggle_record():
+    global sa_instance, recording_active
 
-        self.device_label = tk.Label(self.root, text="选择输入设备")
-        self.device_label.pack()
+    if not recording_active:
+        try:
+            print(f"Selected device index: {selected_device_index}")  # Debugging output
+            sa_instance = AudioRecord.SaveAudio(input_device_index=selected_device_index)
+            sa_instance.set_threshold(threshold_slider.get())
 
-        self.input_devices = self.get_input_devices()
-        device_names = [device['name'] for device in self.input_devices]
-        self.device_menu = tk.OptionMenu(self.root, self.input_device, *device_names)
-        self.device_menu.pack()
-        if device_names:
-            self.input_device.set(device_names[0])  # 设置默认选择
+            # Start flowtext thread
+            flowtext_thread = Thread(target=sa_instance.flowtext_run)
+            flowtext_thread.start()
 
-        self.scale_label = tk.Label(self.root, text="灵敏度")
-        self.scale_label.pack()
+            # Start audio thread
+            audio_thread = Thread(target=sa_instance.audio_stream)
+            audio_thread.start()
 
-        self.scale = tk.Scale(self.root, from_=0.0, to=0.1, resolution=0.001, orient=tk.HORIZONTAL, variable=self.threshold, command=self.update_threshold)
-        self.scale.pack()
+            messagebox.showinfo("Success", "Recording started successfully")
+            recording_active = True
+            toggle_button.config(text="停止字幕")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to start recording: {e}")
+    else:
+        try:
+            if sa_instance:
+                # Stop flowtext and audio threads
+                sa_instance.stop_flowtext()
+                sa_instance.stop_audio()
 
-        self.btn_quit = tk.Button(self.root, text="退出", command=self.quit_app)
-        self.btn_quit.pack()
+                messagebox.showinfo("Success", "Recording stopped successfully")
+                recording_active = False
+                toggle_button.config(text="启动字幕（后运行）")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to stop recording: {e}")
 
-    def get_input_devices(self):
-        devices = sd.query_devices()
-        input_devices = [{'id': i, 'name': device['name']} for i, device in enumerate(devices) if device['max_input_channels'] > 0]
-        return input_devices
+def set_threshold(val):
+    global sa_instance
+    threshold_value = int(val)
+    if sa_instance:
+        # Use `after` to ensure this is executed in the main thread
+        window.after(0, sa_instance.set_threshold, threshold_value)
 
-    def toggle_transcription(self):
-        if not self.is_running:
-            self.start_transcription()
-        else:
-            self.stop_transcription()
+def create_control_panel():
+    global selected_device_index, toggle_button, threshold_slider, window, start_button
 
-    def start_transcription(self):
-        selected_device_name = self.input_device.get()
-        selected_device = next(device['id'] for device in self.input_devices if device['name'] == selected_device_name)
-        self.transcription = Transcription("flowtext", self.threshold.get(), selected_device)
-        self.transcription_thread = threading.Thread(target=self.transcription.run)
-        self.transcription_thread.start()
-        self.is_running = True
-        self.btn_toggle.config(text="停止")
+    selected_device_index = None
 
-    def stop_transcription(self):
-        if self.transcription:
-            self.transcription.stop()
-            self.transcription_thread.join()
-            self.transcription = None
-        self.is_running = False
-        self.btn_toggle.config(text="启动")
+    # 创建窗口组件
+    window = tk.Tk()
+    window.geometry("300x300")
+    window.title("Control Panel")
 
-    def update_threshold(self, value):
-        if self.transcription:
-            self.transcription.set_threshold(float(value))
+    def on_close():
+        global sa_instance
+        if sa_instance:
+            sa_instance.stop_flowtext()
+            sa_instance.stop_audio()
 
-    def quit_app(self):
-        if self.transcription and self.is_running:
-            self.transcription.stop()
-            self.transcription_thread.join()
-        self.root.quit()
+        stop_server()  # Stop FastAPI server
+
+        window.destroy()
+
+    window.protocol("WM_DELETE_WINDOW", on_close)  # 设置窗口关闭时的回调函数
+
+    # 开始与停止
+    start_button = tk.Button(window, text="启动服务（先运行）", command=start_server)
+    start_button.pack(pady=10)
+
+    toggle_button = tk.Button(window, text="启动字幕（后运行）", command=toggle_record)
+    toggle_button.pack(pady=10)
+
+    # Threshold slider
+    threshold_slider = tk.Scale(window, from_=0, to=10000, orient=tk.HORIZONTAL, label="灵敏度", command=set_threshold)
+    threshold_slider.set(1500)  # Set initial value to 1000
+    threshold_slider.pack(pady=10)
+
+    # Dropdown menu for audio devices
+    devices = AudioRecord.list_audio_devices()
+    device_names = [name for index, name in devices]
+
+    def on_device_selected(event):
+        global selected_device_index
+        selected_device_index = devices[device_menu.current()][0]
+        print(f"Selected device index updated to: {selected_device_index}")  # Debugging output
+
+    device_menu = ttk.Combobox(window, values=device_names, state="readonly")
+    device_menu.bind("<<ComboboxSelected>>", on_device_selected)
+    device_menu.config(width=30)  # 设置宽度为 15
+    device_menu.pack(pady=10)
+    device_menu.set("选择输入设备（停止字幕后选择）")  # Set default value
+
+    # Button to exit the program
+    exit_button = tk.Button(window, text="退出程序", command=on_close)
+    exit_button.pack(pady=10)
+
+    # Run the tkinter main loop
+    window.mainloop()
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = MainWindow(root)
-    root.mainloop()
+    control_thread = Thread(target=create_control_panel)
+    control_thread.start()
+    control_thread.join()  # Ensure the main thread waits for the GUI thread to finish
